@@ -88,11 +88,13 @@ async function checkDomain(domain, keywords) {
           .replace(/\/$/, '')
           .toLowerCase();
         
-        if (
-          itemDomain === cleanDomain || 
-          itemDomain.startsWith(cleanDomain + '/') || 
-          itemDomain.includes(cleanDomain)
-        ) {
+        // Tam eşleşme veya subdomain kontrolü (daha sıkı)
+        const isMatch = itemDomain === cleanDomain || 
+          itemDomain === 'www.' + cleanDomain ||
+          itemDomain.startsWith(cleanDomain + '/') ||
+          itemDomain.startsWith('www.' + cleanDomain + '/');
+        
+        if (isMatch) {
           results.push({
             keyword: keyword.trim(),
             position: item.position,
