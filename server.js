@@ -518,7 +518,7 @@ function setupCron() {
 
   readConfig().then(config => {
     if (config.settings.autoCheck) {
-      const interval = Math.min(Math.max(config.settings.intervalMinutes, 10), 1440);
+      const interval = Math.min(Math.max(config.settings.intervalMinutes, 1), 1440);
       
       // Dakika cinsinden cron expression
       // Her X dakikada çalışır
