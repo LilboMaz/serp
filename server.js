@@ -213,71 +213,87 @@ bot.command('ekle', async (ctx) => {
   }
 });
 
-// /kontrol - Sıralama kontrolü
+// /kontrol - Sıralama kontrolü (tüm domainler veya tek domain)
 bot.command('kontrol', async (ctx) => {
   const parts = ctx.message.text.split(' ');
   const config = await readConfig();
   
-  let domain;
-  if (parts.length >= 2) {
-    domain = parts[1].toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, '');
-  } else if (config.domains.length > 0) {
-    domain = config.domains[0].domain;
-  } else {
-    return ctx.reply('❌ Domain belirt veya önce /ekle ile domain ekle');
+  if (config.domains.length === 0) {
+    return ctx.reply('❌ Önce /ekle ile domain ekle');
   }
 
-  const domainConfig = config.domains.find(d => d.domain === domain);
-  if (!domainConfig) {
-    return ctx.reply(`❌ *${domain}* bulunamadı. Önce /ekle ile ekleyin.`, { parse_mode: 'Markdown' });
-  }
-
-  const msg = await ctx.reply(`⏳ *${domain}* sorgulanıyor...`, { parse_mode: 'Markdown' });
+  // Domain belirtilmemişse TÜM domainleri kontrol et
+  const checkAll = parts.length < 2;
   
-  try {
-    await log(`Manuel kontrol başladı: ${domain}`);
-    const results = await checkDomain(domain, domainConfig.keywords);
-    
-    let text = `🔍 *${domain}* Sıralama Sonuçları\n`;
-    text += `🇹🇷 Türkiye - Google\n\n`;
-    
-    let found = 0;
-    
-    results.forEach(r => {
-      if (r.position) {
-        const emoji = r.position <= 3 ? '🥇' : r.position <= 10 ? '🔵' : '⚪';
-        text += `${emoji} *${r.keyword}* → Sıra *#${r.position}*\n`;
-        found++;
-      } else {
-        text += `❌ *${r.keyword}* → ${r.error}\n`;
-      }
-    });
-    
-    text += `\n📊 ${found}/${results.length} keyword bulundu`;
-    
-    // Domain istatistiklerini güncelle
-    domainConfig.lastChecked = new Date().toISOString();
-    domainConfig.checkCount = (domainConfig.checkCount || 0) + 1;
-    await writeConfig(config);
-    
-    await ctx.telegram.editMessageText(
-      ctx.chat.id, 
-      msg.message_id, 
-      undefined, 
-      text, 
-      { parse_mode: 'Markdown' }
-    );
-    
-    await log(`Manuel kontrol tamamlandı: ${domain} - ${found}/${results.length} bulundu`);
-  } catch (err) {
-    await ctx.telegram.editMessageText(
-      ctx.chat.id, 
-      msg.message_id, 
-      undefined, 
-      `❌ Hata: ${err.message}`
-    );
-    await log(`Hata: ${domain} - ${err.message}`);
+  const domainsToCheck = checkAll 
+    ? config.domains 
+    : [config.domains.find(d => d.domain === parts[1].toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, ''))].filter(Boolean);
+
+  if (domainsToCheck.length === 0) {
+    return ctx.reply(`❌ Domain bulunamadı. /listele ile kayıtlı domainleri görebilirsin.`);
   }
+
+  const msg = await ctx.reply(
+    checkAll 
+      ? `⏳ Tüm domainler (${domainsToCheck.length}) kontrol ediliyor...` 
+      : `⏳ *${domainsToCheck[0].domain}* sorgulanıyor...`, 
+    { parse_mode: 'Markdown' }
+  );
+  
+  let allResults = [];
+  
+  for (const domainConfig of domainsToCheck) {
+    try {
+      await log(`Kontrol başladı: ${domainConfig.domain}`);
+      const results = await checkDomain(domainConfig.domain, domainConfig.keywords);
+      
+      let text = `🔍 *${domainConfig.domain}*\n`;
+      
+      let found = 0;
+      results.forEach(r => {
+        if (r.position) {
+          const emoji = r.position <= 3 ? '🥇' : r.position <= 10 ? '🔵' : '⚪';
+          text += `${emoji} *${r.keyword}*: #${r.position}\n`;
+          found++;
+        } else {
+          text += `❌ *${r.keyword}*: ${r.error}\n`;
+        }
+      });
+      
+      text += `\n📊 ${found}/${results.length} bulundu`;
+      allResults.push({ domain: domainConfig.domain, text, found, total: results.length });
+      
+      // Domain istatistiklerini güncelle
+      domainConfig.lastChecked = new Date().toISOString();
+      domainConfig.checkCount = (domainConfig.checkCount || 0) + 1;
+      
+      // Rate limit koruması
+      await new Promise(r => setTimeout(r, 2000));
+    } catch (err) {
+      allResults.push({ domain: domainConfig.domain, text: `❌ Hata: ${err.message}`, found: 0, total: 0 });
+    }
+  }
+  
+  await writeConfig(config);
+  
+  // Sonuçları birleştir
+  let finalText = checkAll 
+    ? `📊 *Tüm Domain Kontrolü*\n\n` 
+    : `🔍 *Kontrol Sonuçları*\n\n`;
+  
+  allResults.forEach(r => {
+    finalText += `━━━ ${r.domain} ━━━\n${r.text}\n\n`;
+  });
+  
+  await ctx.telegram.editMessageText(
+    ctx.chat.id, 
+    msg.message_id, 
+    undefined, 
+    finalText, 
+    { parse_mode: 'Markdown' }
+  );
+  
+  await log(`Kontrol tamamlandı: ${allResults.length} domain`);
 });
 
 // /listele - Tüm domainleri listele
